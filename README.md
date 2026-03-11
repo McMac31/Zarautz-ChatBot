@@ -25,13 +25,16 @@ Asistente inteligente para el **Club Deportivo Zarautz** (Zarautz Kirol Elkartea
    git clone [https://github.com/McMac31/Zarautz-ChatBot.git](https://github.com/McMac31/Zarautz-ChatBot.git)
 Instala las dependencias:
 
-Bash
-npm install
+```bash
+   npm install
+
 Crea un archivo .env basado en el .env.example y rellena tus credenciales.
 
 Inicia el servidor:
 
-Bash
+```bash
 node server.js
+
+
 📝 Notas
 Este es un proyecto desarrollado para la gestión automatizada de socios y consultas frecuentes del club.
