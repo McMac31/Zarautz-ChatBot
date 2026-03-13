@@ -1,15 +1,16 @@
-require('dotenv').config();
-const express = require('express');
-const axios = require('axios');
-const { OpenAI } = require('openai');
+require('dotenv').config(); // Carga las variables de entorno desde el archivo .env
+const express = require('express'); // Framework web para Node.js
+const axios = require('axios'); // Para enviar mensajes a la API de WhatsApp
+const { OpenAI } = require('openai'); // SDK oficial de OpenAI para Node.js
+const { detectarIntencion } = require('./services/intenciones'); // Importamos la función de detección de intenciones
 
-const app = express();
-app.use(express.json());
+const app = express(); // Creamos una aplicación Express
+app.use(express.json()); //Para parsear JSON en las solicitudes entrantes
 
 const groq = new OpenAI({
     apiKey: process.env.GROQ_API_KEY,
     baseURL: "https://api.groq.com/openai/v1"
-});
+}); // Creamos una instancia de OpenAI apuntando a Groq
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 
@@ -51,36 +52,72 @@ app.post('/webhook', async (req, res) => {
     const body = req.body;
     if (body.object && body.entry[0].changes[0].value.messages) {
         const message = body.entry[0].changes[0].value.messages[0];
-        const from = message.from; 
-        const msgText = message.text.body;
+        const from = message.from;
 
+        // --- VALIDACIÓN DE QUE SEA UN MENSAJE DE TEXTO ---
+        if (message.type !== "text") {
+            console.log(`⚠️ Mensaje no soportado (${message.type}) de ${from}`);
+            try {
+                await axios({
+                    method: "POST",
+                    url: `https://graph.facebook.com/v21.0/${process.env.PHONE_NUMBER_ID}/messages`,
+                    data: {
+                        messaging_product: "whatsapp",
+                        to: from,
+                        text: { body: "Lo siento, solo puedo leer mensajes de texto. 📝\n---\nBarkatu, testu mezuak bakarrik irakur ditzaket. 📝" },
+                    },
+                    headers: { "Authorization": `Bearer ${process.env.WHATSAPP_TOKEN}` },
+                });
+            } catch (error) {
+                console.error("❌ Error al enviar mensaje de validación:", error.message);
+            }
+            return res.sendStatus(200); //  Siempre responde 200 a Meta aunque el mensaje no sea de texto, para evitar que se caiga todo.
+        }
+
+        const msgText = message.text.body;
         console.log(`📩 Socio (${from}): ${msgText}`);
 
-        // --- LÓGICA DE MEMORIA ACTIVA ---
-        // Si es la primera vez del número, le damos las reglas (system)
+        // --- 🧠 MEMORIA ---
         if (!memoria[from]) {
             memoria[from] = [{ role: "system", content: systemInstruction }];
         }
-
-        // Añadimos lo que dice el socio al historial de SU número
         memoria[from].push({ role: "user", content: msgText });
-
-        // Limpiamos memoria si es muy larga (máximo 8 mensajes para no perder el hilo)
         if (memoria[from].length > 9) {
-            memoria[from].splice(1, 2); // Borra lo más viejo pero mantiene el 'system'
+            memoria[from].splice(1, 2);
         }
 
+        // --- 🎯 ENRUTADOR ---
         try {
-            // Mandamos TODA la conversación a Groq
-            const completion = await groq.chat.completions.create({
-                model: "llama-3.3-70b-versatile",
-                messages: memoria[from] 
-            });
+            const intencionObj = await detectarIntencion(groq, msgText);
+            console.log(`🧠 Intención detectada:`, intencionObj);
 
-            const aiResponse = completion.choices[0].message.content;
+            let aiResponse = "";
 
-            // Guardamos lo que dijo la IA para que se acuerde en la siguiente pregunta
-            memoria[from].push({ role: "assistant", content: aiResponse });
+            switch (intencionObj.intencion) {
+                case "agendar_cita":
+                    //  DEMO DE AGENDAMIENTO DE CITA---
+                    if (intencionObj.fecha && intencionObj.hora) {
+                        aiResponse = `¡Reserva confirmada!\nSe ha guardado tu pista para el **${intencionObj.fecha}** a las **${intencionObj.hora}**.\n(En la versión final, esto se conectará automáticamente al google calendar).\n---\n Erreserba baieztatuta!\nPista gordeta **${intencionObj.fecha}**-rako, **${intencionObj.hora}**-tan.`;
+                    } else {
+                        aiResponse = "¡Perfecto! Vamos a reservar tu pista 🎾. Para poder agendarlo, ¿qué **día** y **hora** te viene bien?\n---\nEzin hobeto! Zure pista erreserbatuko dugu 🎾. Erreserba egiteko, zer **egun** eta **ordu** datorkizu ondo?";
+                    }
+                    break;
+               
+
+                case "cancelar_cita":
+                    aiResponse = "Para cancelar tu reserva, por favor llama al 943 83 14 63.\n---\nZure erreserba bertan behera uzteko, deitu 943 83 14 63 zenbakira.";
+                    break;
+
+                case "consulta_info":
+                case "saludo":
+                default:
+                    const completion = await groq.chat.completions.create({
+                        model: "llama-3.3-70b-versatile",
+                        messages: memoria[from]
+                    });
+                    aiResponse = completion.choices[0].message.content;
+                    break;
+            }
 
             await axios({
                 method: "POST",
@@ -93,13 +130,19 @@ app.post('/webhook', async (req, res) => {
                 headers: { "Authorization": `Bearer ${process.env.WHATSAPP_TOKEN}` },
             });
 
-            console.log(`🚀 Respondido con contexto: ${aiResponse.substring(0, 30)}...`);
+            console.log(`🚀 Respuesta enviada.`);
 
         } catch (error) {
-            console.error("❌ Error:", error.message);
+            console.error("❌ Error en el flujo principal:", error.message);
+            if (error.response) {
+                    console.error("📋 Detalle del error:", JSON.stringify(error.response.data, null, 2));
+            }
+            
         }
     }
-    res.sendStatus(200);
+
+    res.sendStatus(200); // Meta siempre recibe 200 para evitar errores de webhook, incluso si algo falla internamente.
 });
 
-app.listen(3000, () => console.log('🚀 Bot de Zarautz (70B + Memoria) funcionando'));
+const PORT = process.env.PORT || 3000; // Puerto de escucha del servidor
+app.listen(PORT, () => console.log(`🚀 Bot de Zarautz funcionando en puerto ${PORT}`));
