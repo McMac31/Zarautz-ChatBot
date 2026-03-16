@@ -36,6 +36,7 @@ const initDB = async () => {
         console.log("🐘 Base de datos conectada y tablas PRO verificadas.");
     } catch (error) {
         console.error("❌ Error al inicializar la base de datos:", error.message);
+        console.error("📋 Detalle:", error);
     }
 };
 initDB(); // Inicializamos la base de datos al arrancar el servidor 
