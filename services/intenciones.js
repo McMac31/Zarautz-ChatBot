@@ -18,7 +18,7 @@ NORMAS DEL CLUB:
 ESTRUCTURA JSON OBLIGATORIA (Debe ser UN SOLO OBJETO, NUNCA un array):
 {
   "intencion": "agendar_cita" | "cancelar_cita" | "consulta_info" | "saludo" | "otro",
-  "servicio": "pádel" | null,
+  "servicio": "squash" | null,
   "fecha": "texto" | null,
   "hora": "texto" | null,
   "horario_valido": true | false,
@@ -39,7 +39,7 @@ REGLAS DE VALIDACIÓN:
 1. NUNCA devuelvas un array.
 2. Si el usuario pide un DOMINGO o una hora fuera de rango, marca "horario_valido": false.
 3. Si faltan datos de fecha u hora en agendar_cita, "horario_valido" debe ser true.
-4. CONTEXTO: Si el usuario da un dato nuevo (ej. la hora) que responde a una pregunta previa del bot para una reserva de pádel, el JSON debe incluir también los datos mencionados anteriormente (ej. la fecha).
+4. CONTEXTO: Si el usuario da un dato nuevo (ej. la hora) que responde a una pregunta previa del bot para una reserva de squash, el JSON debe incluir también los datos mencionados anteriormente (ej. la fecha).
 5. NO INVENTAR: Si un dato no se ha mencionado en ningún momento de la charla, pon null.
 6. INSULTOS: Ignóralos completamente y extrae la intención real.`
                 },

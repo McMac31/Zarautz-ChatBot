@@ -4,6 +4,9 @@ const axios = require('axios'); // Para enviar mensajes a la API de WhatsApp
 const { OpenAI } = require('openai'); // SDK oficial de OpenAI para Node.js
 const { detectarIntencion } = require('./services/intenciones'); // Importamos la función de detección de intenciones
 
+const { upsertUsuario, guardarMensaje, obtenerHistorial, obtenerNombre } = require('./services/db'); // Importamos las funciones de la base de datos
+
+
 const app = express(); // Creamos una aplicación Express
 app.use(express.json()); //Para parsear JSON en las solicitudes entrantes
 
@@ -16,7 +19,6 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 
 // --- 🧠 SISTEMA DE MEMORIA ---
 // Guardamos las charlas de cada número aquí
-const memoria = {}; 
 
 const systemInstruction = `Eres el recepcionista oficial del Club Deportivo Zarautz (Zarautz Kirol Elkartea). 
 Tu tono debe ser amable, servicial y proactivo. Trata de ayudar SIEMPRE con la información que tienes disponible.
@@ -91,18 +93,24 @@ app.post('/webhook', async (req, res) => {
         const msgText = message.text.body;
         console.log(`📩 Socio (${from}): ${msgText}`);
 
-        // --- 🧠 MEMORIA ---
-        if (!memoria[from]) {
-            memoria[from] = [{ role: "system", content: systemInstruction }];
-        }
-        memoria[from].push({ role: "user", content: msgText });
-        if (memoria[from].length > 9) {
-            memoria[from].splice(1, 2);
+        // --- 🧠 MEMORIA CON BBDD---
+        let historialDB = [];
+        try {
+            await upsertUsuario(from);
+            await guardarMensaje(from, "user", msgText);
+            historialDB = await obtenerHistorial(from);
+        } catch (dbError) {
+            console.error("❌ Error con la base de datos:", dbError.message);
         }
 
+        const memoriaActual = [
+            { role: "system", content: systemInstruction },
+            ...historialDB
+        ];
+       
         // --- 🎯 ENRUTADOR ---
         try {
-            const intencionObj = await detectarIntencion(groq, memoria[from]);
+            const intencionObj = await detectarIntencion(groq, memoriaActual);
             console.log(`🧠 Intención detectada:`, intencionObj);
 
             let aiResponse = "";
@@ -145,15 +153,17 @@ app.post('/webhook', async (req, res) => {
                 case "consulta_info":
                 case "saludo":
                 default:
-                    // 1. Buscamos el nombre en el historial
-                    const historial = memoria[from] || [];
-                    const mensajesUsuario = historial
-                        .filter(m => m.role === "user")
-                        .map(m => m.content)
-                        .join(" ");
+                    // 1. Buscamos el nombre en la BBDD
+                    const mensajesUsuario = historialDB
+                    .filter(m => m.role === "user")
+                    .map(m => m.content)
+                    .join(" ");
                     
                     const nombreMatch = mensajesUsuario.match(/me llamo (\w+)|soy (\w+)/i);
                     const nombre = nombreMatch ? (nombreMatch[1] || nombreMatch[2]) : null;
+                    if (nombre) {
+                        await upsertUsuario(from, nombre);
+                    }
 
                     // 2. Inyectamos el nombre en el system prompt si lo tenemos
                     const systemConNombre = nombre
@@ -184,6 +194,7 @@ app.post('/webhook', async (req, res) => {
             });
 
             console.log(`🚀 Respuesta enviada.`);
+            await guardarMensaje(from, "assistant", aiResponse);
 
         } catch (error) {
             console.error("❌ Error en el flujo principal:", error.message);
