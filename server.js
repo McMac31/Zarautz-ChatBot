@@ -18,23 +18,37 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 // Guardamos las charlas de cada número aquí
 const memoria = {}; 
 
-const systemInstruction = `Eres el asistente oficial del Club Deportivo Zarautz. 
-Responde de forma profesional, amable y MUY BREVE. 
+const systemInstruction = `Eres el recepcionista oficial del Club Deportivo Zarautz (Zarautz Kirol Elkartea). 
+Tu tono debe ser amable, servicial y proactivo. Trata de ayudar SIEMPRE con la información que tienes disponible.
 
-DATOS REALES (No inventes nada fuera de esto):
+DATOS REALES DEL CLUB (No inventes nada fuera de esto):
 - Horario Lunes a Viernes: 08:00 a 22:00.
 - Sábados: 09:00 a 14:00.
 - Domingos y Festivos: CERRADO.
-- Pistas de pádel: 15€/hora.
+- Pistas de squash: 15€/hora.
+- 13 Disciplinas deportivas: Fútbol, Balonmano, Baloncesto, Rugby, Halterofilia, Voleibol, Pelota, Herri kirolak, Fútbol sala, Squash, Patinaje, Ajedrez, Atletismo.
+REGLA: Si te preguntan por un deporte que NO tenemos (ej. tenis o natación), responde amablemente que no disponéis de esa disciplina, pero MENCIONA la lista de los deportes que SÍ tenéis para ofrecer alternativas.
 
-REGLAS CRÍTICAS DE INFORMACIÓN:
-1. Si el socio pregunta algo que NO está en estos datos (ej. cuotas, clases, cafetería), di educadamente que no dispones de esa información y que llamen al club al 943 83 14 63.
-2. No alucines ni inventes servicios que no están listados aquí.
+
+INFORMACIÓN SOBRE COLONIAS DEPORTIVAS (JOLASTI) Y TORNEOS:
+- Colonias Jolasti: Sí se organizan (similar a otros años). Modalidades y turnos/semanas: Areto futbola+saskibaloia (7), Errugbia (4), Eskubaloia (5), Futbola (5), Futbol teknifikazioa (5), Saskibaloia (7), Saski teknifikazioa (4), Halterofilia teknifikazioa (4), Irristaketa (2). 
+- Estado Colonias: Aún NO hay fechas de inicio ni está abierta la inscripción. (Recomendar ver info de la edición 2025).
+- Torneos/Ediciones de Verano: 
+  * Edición Niñ@s (LH3 - DBH2): 4 y 5 de Julio.
+  * Edición Adult@s (DBH3 en adelante): 11 y 12 de Julio.
+  * Estado: Inscripciones cerradas todavía. (Recomendar ver info edición 2025).
+  * REGLA: Si preguntan por las colonias de un deporte específico (ej. fútbol), diles exactamente cuántos turnos hay disponibles para ese deporte antes de aclarar que la inscripción no está abierta aún.
+  * REGLA: Si preguntan por los torneos, DEBES DARLES LAS FECHAS EXACTAS del evento primero, y después indicarles que la inscripción aún está cerrada.
+  
+REGLAS ESTRICTAS DE INFORMACIÓN:
+1. Si el socio pregunta algo que NO está en estos datos, di educadamente que no dispones de esa información y que llamen al 943 83 14 63.
+2. NUNCA inventes fechas de inscripción si aquí dice que están cerradas.
+
+ENFOQUE ESTRICTO: Responde ÚNICAMENTE a la última pregunta o mensaje del usuario. Está TERMINANTEMENTE PROHIBIDO repetir información sobre temas anteriores que el usuario ya no está preguntando (por ejemplo, no vuelvas a hablar de tenis si ahora te preguntan por colonias).
 
 REGLA DE IDIOMA Y FORMATO:
 - Responde SIEMPRE en un solo mensaje con dos bloques: Castellano y Euskera Batua correcto.
 - En euskera, el club es "Zarautz Kirol Elkartea". No uses "Zarautz Club".
-- No inventes palabras en euskera. Si tienes dudas, usa términos sencillos y correctos.
 - Estructura obligatoria: 
   [Texto en Castellano]
   ---
@@ -88,20 +102,40 @@ app.post('/webhook', async (req, res) => {
 
         // --- 🎯 ENRUTADOR ---
         try {
-            const intencionObj = await detectarIntencion(groq, msgText);
+            const intencionObj = await detectarIntencion(groq, memoria[from]);
             console.log(`🧠 Intención detectada:`, intencionObj);
 
             let aiResponse = "";
 
             switch (intencionObj.intencion) {
                 case "agendar_cita":
+                // VALIDACIÓN DE HORARIO
+                if (intencionObj.horario_valido === false) {
+                       const partes = (intencionObj.motivo_invalido || "").split("---");
+                        const motivoEs = partes[0]?.trim() || "Horario no disponible.";
+                        const motivoEu = partes[1]?.trim() || motivoEs;
+                        aiResponse = `Lo siento, esa hora no es posible. ${motivoEs}\n---\nBarkatu, ordu hori ez da posible. ${motivoEu}`;
+                        break;
+                    }
                     //  DEMO DE AGENDAMIENTO DE CITA---
                     if (intencionObj.fecha && intencionObj.hora) {
-                        aiResponse = `¡Reserva confirmada!\nSe ha guardado tu pista para el **${intencionObj.fecha}** a las **${intencionObj.hora}**.\n(En la versión final, esto se conectará automáticamente al google calendar).\n---\n Erreserba baieztatuta!\nPista gordeta **${intencionObj.fecha}**-rako, **${intencionObj.hora}**-tan.`;
+                        // Escenario 1: Tenemos ambos datos (El Efecto Guau)
+                        aiResponse = `¡Reserva confirmada!\nSe ha guardado tu pista para el **${intencionObj.fecha}** a las **${intencionObj.hora}**.\n(En la versión final, esto se conectará automáticamente al calendario del club).\n---\n Erreserba baieztatuta!\nPista gordeta **${intencionObj.fecha}**-rako, **${intencionObj.hora}**-tan.`;
+                    
+                    } else if (intencionObj.fecha && !intencionObj.hora) {
+                        // Escenario 2: Nos ha dicho el día, pero NO la hora
+                        aiResponse = `¡Genial! Tienes pensado jugar el **${intencionObj.fecha}**. ¿A qué **hora** te gustaría reservar?\n---\nBikain! **${intencionObj.fecha}**-(e)an jokatzeko asmoa duzu. Zer **ordu**-tan erreserbatu nahi duzu?`;
+                    
+                    } else if (!intencionObj.fecha && intencionObj.hora) {
+                        // Escenario 3: Nos ha dicho la hora, pero NO el día
+                        aiResponse = `Perfecto, a las **${intencionObj.hora}**. ¿Para qué **día** de la semana quieres la pista?\n---\nPrimeran, **${intencionObj.hora}**-(e)tan. Asteko zein **egun**-tarako nahi duzu pista?`;
+                    
                     } else {
+                        // Escenario 4: Solo ha dicho "quiero jugar" sin día ni hora
                         aiResponse = "¡Perfecto! Vamos a reservar tu pista 🎾. Para poder agendarlo, ¿qué **día** y **hora** te viene bien?\n---\nEzin hobeto! Zure pista erreserbatuko dugu 🎾. Erreserba egiteko, zer **egun** eta **ordu** datorkizu ondo?";
                     }
                     break;
+                    
                
 
                 case "cancelar_cita":
@@ -111,13 +145,32 @@ app.post('/webhook', async (req, res) => {
                 case "consulta_info":
                 case "saludo":
                 default:
+                    // 1. Buscamos el nombre en el historial
+                    const historial = memoria[from] || [];
+                    const mensajesUsuario = historial
+                        .filter(m => m.role === "user")
+                        .map(m => m.content)
+                        .join(" ");
+                    
+                    const nombreMatch = mensajesUsuario.match(/me llamo (\w+)|soy (\w+)/i);
+                    const nombre = nombreMatch ? (nombreMatch[1] || nombreMatch[2]) : null;
+
+                    // 2. Inyectamos el nombre en el system prompt si lo tenemos
+                    const systemConNombre = nombre
+                        ? `${systemInstruction}\n\nDATO IMPORTANTE: El usuario se llama ${nombre}. Úsalo para personalizar tu respuesta.`
+                        : systemInstruction;
+
+                    // 3. Solo mandamos system + mensaje actual, sin historial contaminado
                     const completion = await groq.chat.completions.create({
                         model: "llama-3.3-70b-versatile",
-                        messages: memoria[from]
+                        messages: [
+                            { role: "system", content: systemConNombre },
+                            { role: "user", content: msgText }
+                        ]
                     });
                     aiResponse = completion.choices[0].message.content;
                     break;
-            }
+                }
 
             await axios({
                 method: "POST",
