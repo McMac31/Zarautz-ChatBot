@@ -4,7 +4,7 @@ const axios = require('axios'); // Para enviar mensajes a la API de WhatsApp
 const { OpenAI } = require('openai'); // SDK oficial de OpenAI para Node.js
 const { detectarIntencion } = require('./services/intenciones'); // Importamos la función de detección de intenciones
 
-const { upsertUsuario, guardarMensaje, obtenerHistorial, obtenerNombre } = require('./services/db'); // Importamos las funciones de la base de datos
+const { upsertUsuario, guardarMensaje, obtenerHistorial, obtenerNombre } = require('./services/database'); // Importamos las funciones de la base de datos
 
 
 const app = express(); // Creamos una aplicación Express
@@ -181,7 +181,8 @@ app.post('/webhook', async (req, res) => {
                     aiResponse = completion.choices[0].message.content;
                     break;
                 }
-
+                
+            await guardarMensaje(from, "assistant", aiResponse);
             await axios({
                 method: "POST",
                 url: `https://graph.facebook.com/v21.0/${process.env.PHONE_NUMBER_ID}/messages`,
@@ -194,7 +195,7 @@ app.post('/webhook', async (req, res) => {
             });
 
             console.log(`🚀 Respuesta enviada.`);
-            await guardarMensaje(from, "assistant", aiResponse);
+            
 
         } catch (error) {
             console.error("❌ Error en el flujo principal:", error.message);
